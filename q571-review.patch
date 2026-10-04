@@ -1,0 +1,496 @@
+--- a/backend/tests/invoice-contract.test.ts
++++ b/backend/tests/invoice-contract.test.ts
+@@ -27,6 +27,64 @@
+ import { createInvoiceRouter } from '../src/routes/invoice.routes';
+ import { MemoryInvoiceStorage } from '../src/storage/memory-invoice-storage';
+ 
++describe('Pay-link artifact response contract', () => {
++  const invoice = {
++    id: 'invoice-artifact-contract',
++    sellerPublicKey: `G${'A'.repeat(55)}`,
++    amount: 1,
++    assetCode: 'XLM',
++    memo: 'ARTIFACT',
++    status: 'PENDING',
++    createdAt: '2026-10-04T00:00:00.000Z',
++    expiresAt: '2026-10-05T00:00:00.000Z',
++  };
++  const payload = {
++    invoice,
++    paymentAvailable: true,
++    paymentUrl: 'https://example.test/pay/invoice-artifact-contract',
++    copyValue: 'web+stellar:pay?destination=example',
++    networkPassphrase: 'Test SDF Network ; September 2015',
++  };
++
++  for (const [name, parse] of [
++    ['create', parseCreateInvoiceResponse],
++    ['payment-info', parsePaymentInfoResponse],
++  ] as const) {
++    it(`${name} retains the copy value and network passphrase`, () => {
++      const parsed = parse({ success: true, data: payload });
++      assert.equal(parsed.success, true);
++      if (parsed.success) {
++        assert.equal(parsed.data.data.copyValue, payload.copyValue);
++        assert.equal(parsed.data.data.networkPassphrase, payload.networkPassphrase);
++      }
++    });
++
++    it(`${name} accepts absent or null optional artifact fields`, () => {
++      for (const value of [undefined, null]) {
++        const parsed = parse({
++          success: true,
++          data: { ...payload, copyValue: value, networkPassphrase: value },
++        });
++        assert.equal(parsed.success, true);
++        if (parsed.success) {
++          assert.equal(parsed.data.data.copyValue, null);
++          assert.equal(parsed.data.data.networkPassphrase, null);
++        }
++      }
++    });
++  }
++
++  it('publishes the artifact fields in both response schemas', () => {
++    for (const schema of [
++      INVOICE_OPENAPI_SPEC.components.schemas.CreateInvoiceResponse,
++      INVOICE_OPENAPI_SPEC.components.schemas.PaymentInfoResponse,
++    ]) {
++      assert.deepEqual(schema.properties.data.properties.copyValue, { type: 'string', nullable: true });
++      assert.deepEqual(schema.properties.data.properties.networkPassphrase, { type: 'string', nullable: true });
++    }
++  });
++});
++
+ describe('Statistics response contract', () => {
+   const stats = {
+     total_invoices: 4,
+--- a/frontend/components/InvoiceCard.tsx
++++ b/frontend/components/InvoiceCard.tsx
+@@ -16,32 +16,7 @@
+ import { invoiceApi } from '@/lib/api';
+ import { signInvoiceCancelMessage } from '@/lib/stellar';
+ 
+-<<<<<<< HEAD
+ import type { InvoiceDto } from '../../shared/invoice';
+-=======
+-interface Invoice {
+-  id: string;
+-  amount: number;
+-  assetCode: string;
+-  assetIssuer?: string;
+-  description?: string;
+-  customerName?: string;
+-  customerEmail?: string;
+-  status: string;
+-  createdAt: string;
+-  expiresAt: string;
+-  memo: string;
+-  sellerPublicKey?: string;
+-  sellerName?: string;
+-  sellerEmail?: string;
+-  payerPublicKey?: string;
+-  payerName?: string;
+-  payerEmail?: string;
+-  paymentTxHash?: string;
+-  paidAt?: string;
+-}
+-
+->>>>>>> origin/review-main
+ interface InvoiceCardProps {
+   invoice: InvoiceDto;
+   userWallet?: string | null;
+--- a/frontend/components/pay-page.types.ts
++++ b/frontend/components/pay-page.types.ts
+@@ -1,4 +1,4 @@
+-<<<<<<< HEAD
++import type { PaymentState } from '@/lib/payment-page-state';
+ import type { InvoiceDto } from '../../shared/invoice';
+ import type { PaymentInfoResult } from '../../shared/invoice-contract';
+ 
+@@ -10,65 +10,6 @@
+ 
+ /** Payment instructions returned beside the invoice on the pay page. */
+ export type PayPagePaymentInfo = PaymentInfoResult;
+-=======
+-/**
+- * Shared types for the pay page modular architecture (issue #445).
+- */
+-
+-import type { PaymentState } from '@/lib/payment-page-state';
+-
+-export interface PayPageInvoice {
+-  [key: string]: unknown;
+-  id: string;
+-  amount: number;
+-  assetCode: string;
+-  assetIssuer?: string;
+-  description?: string;
+-  customerName?: string;
+-  customerEmail?: string;
+-  sellerPublicKey: string;
+-  sellerName?: string;
+-  sellerEmail?: string;
+-  memo: string;
+-  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED';
+-  createdAt: string;
+-  expiresAt: string;
+-  paidAt?: string;
+-  cancelledAt?: string;
+-  settledAt?: string;
+-  settlementContext?: 'ON_TIME' | 'AFTER_EXPIRY' | 'AFTER_CANCEL';
+-  priorStatus?: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED';
+-  latePaymentWarningCode?: 'PAYMENT_RECEIVED_AFTER_EXPIRY' | 'PAYMENT_RECEIVED_AFTER_CANCEL';
+-  paymentTxHash?: string;
+-  payerName?: string;
+-  payerEmail?: string;
+-  payerPublicKey?: string;
+-}
+-
+-/**
+- * Server pay-link artifact (issue #557). Create, the pay page, and the seller
+- * invoice page all render these same strings — they never rebuild the URI.
+- */
+-export interface PayPagePaymentInfo {
+-  stellarQrCode?: string | null;
+-  /** The full SEP-0007 URI — always returned even when the QR falls back. */
+-  stellarUri?: string | null;
+-  /**
+-   * False when the URI outgrew the QR payload budget and the image encodes
+-   * the HTTPS pay link instead (issue #510).
+-   */
+-  stellarQrEncodesUri?: boolean | null;
+-  paymentUrl?: string | null;
+-  /**
+-   * Whatever the QR encoded — the SEP-0007 URI or the HTTPS pay link. Copy
+-   * actions on create, the pay page, and the seller page use this string.
+-   */
+-  copyValue?: string | null;
+-  /** Passphrase from the same resolver explorer links use. */
+-  networkPassphrase?: string | null;
+-  statusPollingIntervalMs?: number;
+-  paymentAvailable?: boolean;
+-}
+ 
+ export type PaymentSessionStatus =
+   | 'loading'
+@@ -120,4 +61,3 @@
+   reload: () => Promise<void>;
+   copy: (text: string, label: string) => Promise<void>;
+ }
+->>>>>>> origin/review-main
+--- a/frontend/lib/api.ts
++++ b/frontend/lib/api.ts
+@@ -10,6 +10,8 @@
+ import { createBrowserRequestId } from './request-correlation-id.ts';
+ 
+ import type {
++  ApiSuccess,
++  InvoiceStatsDto,
+   CancelInvoiceResponse,
+   CreateInvoiceRequest,
+   CreateInvoiceResponse,
+@@ -19,15 +21,6 @@
+   ListInvoicesResponse,
+   PaymentInfoResponse,
+   VerifyPaymentResponse,
+-} from '../../shared/invoice-contract';
+-import {
+-  parseCancelInvoiceResponse,
+-  parseCreateInvoiceResponse,
+-  parseGetInvoiceResponse,
+-  parseGetStatsResponse,
+-  parseListInvoicesResponse,
+-  parsePaymentInfoResponse,
+-  parseVerifyPaymentResponse,
+ } from '../../shared/invoice-contract';
+ 
+ /**
+@@ -82,20 +75,18 @@
+   }
+ );
+ 
+-
+-
++// Keep shared response types without making schema drift a runtime page gate.
++// Contract tests validate the strict parsers; rolling client/server versions may
++// omit optional fields or add new ones. Transport and server failures still
++// reject through the interceptor above; request validation is unchanged.
+ export const invoiceApi = {
+   create: async (data: CreateInvoiceRequest): Promise<CreateInvoiceResponse> => {
+     const normalizedAssetCode = data.assetCode ? data.assetCode.toUpperCase() : 'XLM';
+-    const response = await api.post('/invoices', {
++    const response = await api.post<CreateInvoiceResponse>('/invoices', {
+       ...data,
+       assetCode: normalizedAssetCode,
+     });
+-    const parsed = parseCreateInvoiceResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Create invoice contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    return response.data;
+   },
+   getById: async (
+     id: string,
+@@ -104,44 +95,20 @@
+     // Workspace fields (client contact, payer identity) are only returned when
+     // the caller presents the invoice's own seller key — issue #503. The pay
+     // page calls this without a key and receives the public pay DTO.
+-    const response = await api.get(`/invoices/${id}`, {
++    const response = await api.get<GetInvoiceResponse>(`/invoices/${id}`, {
+       params: sellerPublicKey ? { sellerPublicKey } : undefined,
+     });
+-    const parsed = parseGetInvoiceResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Get invoice contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
+-  },
+-  // Invoice history is scoped to the connected Freighter wallet, so the seller
+-  // key is required for list and stats calls.
+-<<<<<<< HEAD
++    return response.data;
++  },
+   // Invoice history is scoped to the connected Freighter wallet, so the seller
+   // key is required for list and stats calls.
+   getAll: async (params: ListInvoicesQuery): Promise<ListInvoicesResponse> => {
+-=======
+-  getAll: async (params: {
+-    sellerPublicKey: string;
+-    status?: string;
+-    limit?: number;
+-    offset?: number;
+-    q?: string;
+-  }) => {
+->>>>>>> origin/review-main
+-    const response = await api.get('/invoices', { params });
+-    const parsed = parseListInvoicesResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`List invoices contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    const response = await api.get<ListInvoicesResponse>('/invoices', { params });
++    return response.data;
+   },
+   getPaymentInfo: async (id: string): Promise<PaymentInfoResponse> => {
+-    const response = await api.get(`/invoices/${id}/payment-info`);
+-    const parsed = parsePaymentInfoResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Payment info contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    const response = await api.get<PaymentInfoResponse>(`/invoices/${id}/payment-info`);
++    return response.data;
+   },
+   // Seller-only audit feed (issue #515): rejected verifies and monitor
+   // rejections for this invoice. Requires the invoice's own seller key.
+@@ -152,8 +119,6 @@
+     return response.data;
+   },
+ 
+-  // One proof path (issue #517): the seller key and the Freighter signature
+-  // over `cancel:<id>` travel in the request body — never in query or header.
+   // One proof path (issue #517): the seller key and the Freighter signature
+   // over `cancel:<id>` travel in the request body — never in query or header.
+   cancel: async (
+@@ -161,22 +126,18 @@
+     sellerPublicKey: string,
+     signature?: string
+   ): Promise<CancelInvoiceResponse> => {
+-    const response = await api.post(`/invoices/${id}/cancel`, {
++    const response = await api.post<CancelInvoiceResponse>(`/invoices/${id}/cancel`, {
+       sellerPublicKey,
+       signature,
+     });
+-    const parsed = parseCancelInvoiceResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Cancel invoice contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    return response.data;
+   },
+   verify: async (
+     id: string,
+     txHash: string,
+     payerInfo?: { payerName?: string; payerEmail?: string }
+   ): Promise<VerifyPaymentResponse> => {
+-    const response = await api.post(`/invoices/${id}/verify`, {
++    const response = await api.post<VerifyPaymentResponse>(`/invoices/${id}/verify`, {
+       txHash,
+       // Lets the server reject a payment submitted from the wrong wallet network.
+       // Resolved through the shared contract so the client sends the canonical
+@@ -184,21 +145,16 @@
+       network: resolveStellarNetwork(process.env.NEXT_PUBLIC_STELLAR_NETWORK),
+       ...payerInfo,
+     });
+-    const parsed = parseVerifyPaymentResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Verify payment contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    return response.data;
+   },
+   getStats: async (sellerPublicKey: string): Promise<GetStatsResponse> => {
+-    const response = await api.get('/invoices/stats', {
++    const response = await api.get<GetStatsResponse | ApiSuccess<InvoiceStatsDto[]>>('/invoices/stats', {
+       params: { sellerPublicKey },
+     });
+-    const parsed = parseGetStatsResponse(response.data);
+-    if (!parsed.success) {
+-      throw new Error(`Get stats contract parse failure: ${parsed.error}`);
+-    }
+-    return parsed.data;
++    // Storage currently wraps stats in a one-row array. Keep the client's
++    // object shape without rejecting older partial responses or losing fields.
++    const body = response.data;
++    return Array.isArray(body.data) ? { ...body, data: body.data[0] } : body as GetStatsResponse;
+   }
+ };
+ 
+--- a/frontend/lib/export.ts
++++ b/frontend/lib/export.ts
+@@ -438,11 +438,7 @@
+  *
+  * @param invoiceOrProof - Invoice record or canonical QuittanceProof model.
+  */
+-<<<<<<< HEAD
+ export function openInvoicePDF(invoiceOrProof: InvoiceDto | QuittanceProof) {
+-  const pdfContent = generateInvoicePDF(invoiceOrProof);
+-=======
+-export function openInvoicePDF(invoiceOrProof: Invoice | QuittanceProof) {
+   let proof: QuittanceProof;
+   if (isQuittanceProof(invoiceOrProof)) {
+     proof = invoiceOrProof;
+@@ -455,7 +451,6 @@
+     proof = result.proof;
+   }
+   const pdfContent = renderQuittanceProofHtml(proof);
+->>>>>>> origin/review-main
+   const printWindow = window.open('', '_blank', 'width=800,height=600');
+   if (printWindow) {
+     printWindow.document.write(pdfContent);
+@@ -476,15 +471,10 @@
+   return openInvoiceMailto(invoice, baseUrl);
+ }
+ 
+-<<<<<<< HEAD
+-export function emailPaymentProof(invoice: InvoiceDto, baseUrl?: string): string {
+-  return openProofMailto(invoice, baseUrl);
+-=======
+ export function emailPaymentProof(
+-  invoiceOrProof: Invoice | QuittanceProof,
++  invoiceOrProof: InvoiceDto | QuittanceProof,
+   baseUrl?: string,
+   recipientOverride?: string
+ ): string {
+   return openProofMailto(invoiceOrProof, baseUrl, recipientOverride);
+->>>>>>> origin/review-main
+-}
++}
+--- a/frontend/tests/wallet-session-surfaces.test.js
++++ b/frontend/tests/wallet-session-surfaces.test.js
+@@ -425,3 +425,23 @@
+ 
+   getDom().window.sessionStorage.clear();
+ });
++
++for (const shape of ['row array', 'object']) {
++  test(`dashboard preserves partial seller stats from a ${shape} response`, async () => {
++    walletOnTestnet(ALICE);
++    primeFor([invoice('inv_alice', ALICE, 11.11)]);
++    const stats = { total_invoices: 321, paid_invoices: 123, pending_invoices: 198 };
++    bundle.setResponse('/invoices/stats', { data: shape === 'row array' ? [stats] : stats });
++
++    const { container, unmount } = await render(React.createElement(bundle.DashboardPage));
++    try {
++      await settle();
++      for (const value of [321, 123, 198]) {
++        assert.match(container.textContent, new RegExp(String(value)));
++      }
++      assert.doesNotMatch(container.textContent, /Quittance API is unreachable/);
++    } finally {
++      unmount();
++    }
++  });
++}
+--- a/shared/invoice-contract.ts
++++ b/shared/invoice-contract.ts
+@@ -97,6 +97,8 @@
+   stellarQrCode?: string | null;
+   stellarUri?: string | null;
+   stellarQrEncodesUri?: boolean;
++  copyValue?: string | null;
++  networkPassphrase?: string | null;
+ }
+ 
+ /** Complete response envelope for invoice creation. */
+@@ -113,6 +115,8 @@
+ /** Query parameters for listing seller invoices. */
+ export interface ListInvoicesQuery {
+   sellerPublicKey: string;
++  /** Search term supported by the current seller dashboard. */
++  q?: string;
+   status?: InvoiceStatus | string;
+   limit?: number;
+   offset?: number;
+@@ -131,6 +135,8 @@
+   stellarQrCode?: string | null;
+   stellarUri?: string | null;
+   stellarQrEncodesUri?: boolean;
++  copyValue?: string | null;
++  networkPassphrase?: string | null;
+ }
+ 
+ /** Complete response envelope for invoice payment instructions. */
+@@ -342,6 +348,9 @@
+         qrCode: typeof raw.qrCode === 'string' ? raw.qrCode : null,
+         stellarQrCode: typeof raw.stellarQrCode === 'string' ? raw.stellarQrCode : null,
+         stellarUri: typeof raw.stellarUri === 'string' ? raw.stellarUri : null,
++        copyValue: typeof raw.copyValue === 'string' ? raw.copyValue : null,
++        networkPassphrase:
++          typeof raw.networkPassphrase === 'string' ? raw.networkPassphrase : null,
+         stellarQrEncodesUri:
+           typeof raw.stellarQrEncodesUri === 'boolean'
+             ? raw.stellarQrEncodesUri
+@@ -477,6 +486,9 @@
+         qrCode: typeof raw.qrCode === 'string' ? raw.qrCode : null,
+         stellarQrCode: typeof raw.stellarQrCode === 'string' ? raw.stellarQrCode : null,
+         stellarUri: typeof raw.stellarUri === 'string' ? raw.stellarUri : null,
++        copyValue: typeof raw.copyValue === 'string' ? raw.copyValue : null,
++        networkPassphrase:
++          typeof raw.networkPassphrase === 'string' ? raw.networkPassphrase : null,
+         stellarQrEncodesUri:
+           typeof raw.stellarQrEncodesUri === 'boolean'
+             ? raw.stellarQrEncodesUri
+@@ -691,6 +703,12 @@
+             name: 'sellerPublicKey',
+             in: 'query',
+             required: true,
++            schema: { type: 'string' },
++          },
++          {
++            name: 'q',
++            in: 'query',
++            required: false,
+             schema: { type: 'string' },
+           },
+           {
+@@ -1062,6 +1080,8 @@
+               stellarQrCode: { type: 'string', nullable: true },
+               stellarUri: { type: 'string', nullable: true },
+               stellarQrEncodesUri: { type: 'boolean' },
++              copyValue: { type: 'string', nullable: true },
++              networkPassphrase: { type: 'string', nullable: true },
+             },
+           },
+         },
+@@ -1109,6 +1129,8 @@
+               stellarQrCode: { type: 'string', nullable: true },
+               stellarUri: { type: 'string', nullable: true },
+               stellarQrEncodesUri: { type: 'boolean' },
++              copyValue: { type: 'string', nullable: true },
++              networkPassphrase: { type: 'string', nullable: true },
+             },
+           },
+         },
