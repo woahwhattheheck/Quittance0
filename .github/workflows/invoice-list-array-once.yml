@@ -1,0 +1,74 @@
+name: Invoice list contract repair
+on:
+  push:
+    branches: [validation/invoice-list-array-20261004]
+    paths: [.github/workflows/invoice-list-array-once.yml]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Apply bounded parser repair and check the actual function bodies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object shared/invoice-contract.ts)" = 151de060f051a0ab604604cdd672779621680c61
+          cp shared/invoice-contract.ts /tmp/invoice-contract-before.ts
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('shared/invoice-contract.ts')
+          source = path.read_bytes().decode('utf-8')
+          old = '): ContractResult<ListInvoicesResponse> {\n  if (!isObject(input)'
+          new = '): ContractResult<ListInvoicesResponse> {\n  if (Array.isArray(input)) {\n    return parseListInvoicesResponse({ success: true, data: input });\n  }\n  if (!isObject(input)'
+          dead = '  const list = Array.isArray(input.data)\n    ? input.data\n    : Array.isArray(input)\n      ? input\n      : null;'
+          assert source.count(old) == source.count(dead) == 1
+          source = source.replace(old, new).replace(dead, '  const list = Array.isArray(input.data) ? input.data : null;')
+          path.write_bytes(source.encode('utf-8'))
+          Path('/tmp/invoice-contract-blob.json').write_text(json.dumps({'content': source, 'encoding': 'utf-8'}))
+          PY
+          node <<'JS'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const assert = require('node:assert/strict');
+          const {stripTypeScriptTypes} = require('node:module');
+          function load(path) {
+            const source = fs.readFileSync(path, 'utf8');
+            const start = source.indexOf('const VALID_INVOICE_STATUSES:');
+            const end = source.indexOf('/**\n * Validates an invoice creation request');
+            const listStart = source.indexOf('export function parseListInvoicesResponse(');
+            const listEnd = source.indexOf('/**\n * Validates that an API response adheres to the PaymentInfoResponse contract.');
+            assert.ok(start >= 0 && end > start && listStart > end && listEnd > listStart);
+            const functions = source.slice(start, end) + source.slice(listStart, listEnd);
+            const code = stripTypeScriptTypes(functions).replace(/export function /g, 'function ');
+            const sandbox = {};
+            vm.runInNewContext(code + '\nglobalThis.parse = parseListInvoicesResponse;', sandbox);
+            return input => JSON.parse(JSON.stringify(sandbox.parse(input)));
+          }
+          const before = load('/tmp/invoice-contract-before.ts');
+          const after = load('shared/invoice-contract.ts');
+          const invoice = {id:'legacy-1',sellerPublicKey:'seller-key',amount:1,assetCode:'XLM',memo:'memo',status:'PENDING',createdAt:'2026-10-04T00:00:00.000Z',expiresAt:'2026-10-05T00:00:00.000Z'};
+          for (const input of [[], [invoice]]) {
+            assert.equal(before(input).success, false);
+            assert.equal(after(input).success, true);
+            assert.deepEqual(after(input), before({success:true,data:input}));
+          }
+          for (const input of [
+            {success:true,data:[invoice],pagination:{limit:20,offset:40,total:100}},
+            {success:true,data:[invoice]},
+            {success:true,data:[invoice],pagination:{limit:20,offset:-1,total:100}},
+            {success:false,data:[invoice]},
+          ]) assert.deepEqual(after(input), before(input));
+          assert.equal(after([{...invoice,amount:0}]).success, false);
+          console.log('PASS: exact production function slices; legacy shapes 0/2 before, 2/2 after; five controls pass. No HTTP, full module, application, or repository suite executed.');
+          JS
+          git diff --check
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" --input /tmp/invoice-contract-blob.json
+          git diff -- shared/invoice-contract.ts
