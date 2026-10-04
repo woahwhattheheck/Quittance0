@@ -1,0 +1,91 @@
+Webhook acceptance: source977da14c031f00f6ab7e3a7d5f9aef00104f9351
+https://github.com/woahwhattheheck/bounty-concierge/actions/runs/37204455112/job/111442631510
+2026-10-04T13:07:16.6246682Z [36;1mnode --import tsx --test --test-concurrency=1 tests/webhook-delivery.test.ts tests/webhook-postgres.integration.test.ts 2>&1 | tee "$GITHUB_WORKSPACE/evidence/q584-acceptance.log"[0m
+2026-10-04T13:07:16.6303991Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-04T13:07:16.6304278Z env:
+2026-10-04T13:07:16.6304443Z   NODE_ENV: test
+2026-10-04T13:07:16.6304619Z   STELLAR_NETWORK: TESTNET
+2026-10-04T13:07:16.6304839Z   STELLAR_HORIZON_URL: http://127.0.0.1:1
+2026-10-04T13:07:16.6305095Z   NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api
+2026-10-04T13:07:16.6305337Z   NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+2026-10-04T13:07:16.6305818Z   DATABASE_URL: ***localhost:5432/quittance_ci
+2026-10-04T13:07:16.6306066Z ##[endgroup]
+2026-10-04T13:07:17.4521609Z ⏰ Marked 1 invoices as expired
+2026-10-04T13:07:17.4630043Z ✔ documented HMAC vector verifies raw bytes, rejects stale timestamps and tampering (1.262799ms)
+2026-10-04T13:07:17.4633603Z ✔ encrypted rotation signs with both keys only within the promised overlap (11.110612ms)
+2026-10-04T13:07:17.4635067Z ✔ registration and delivery SSRF checks cover literals, mapped addresses and changed DNS (5.567294ms)
+2026-10-04T13:07:17.4636961Z ✔ memory lifecycle, audit and payment claims commit with the outbox and redact private fields (10.069552ms)
+2026-10-04T13:07:17.5094237Z ✔ actual HTTP receiver 500/500/200 produces three attempts, growing delays and stable event body/id (53.215248ms)
+2026-10-04T13:07:17.5095507Z ✔ concurrent memory workers exclude an in-flight row and disable after repeated failures (0.92772ms)
+2026-10-04T13:07:17.7018695Z ✔ mounted seller API binds one-use proofs to operations and returns secrets only on creation/rotation (49.921798ms)
+2026-10-04T13:07:17.7091220Z {"timestamp":"2026-10-04T13:07:17.708Z","level":"info","event":"payment.verify.started","requestId":"req-37cda9e5b2439713","service":"api","environment":"test","invoiceRef":"redacted","txRef":"redacted","network":"TESTNET"}
+2026-10-04T13:07:17.7097990Z {"timestamp":"2026-10-04T13:07:17.709Z","level":"warn","event":"payment.verify.rejected","requestId":"req-37cda9e5b2439713","service":"api","environment":"test","invoiceRef":"redacted","txRef":"redacted","errorCode":"AMOUNT_TOO_LOW","network":"TESTNET","durationMs":1}
+2026-10-04T13:07:17.7099541Z {"timestamp":"2026-10-04T13:07:17.709Z","level":"error","event":"operation.failed","requestId":"req-37cda9e5b2439713","service":"api","environment":"test","operation":"invoice.events","errorCode":"INVOICE_EVENTS_FAILED"}
+2026-10-04T13:07:17.7122368Z {"timestamp":"2026-10-04T13:07:17.711Z","level":"info","event":"payment.verify.started","requestId":"req-97e106ff445207b2","service":"api","environment":"test","invoiceRef":"redacted","txRef":"redacted","network":"TESTNET"}
+2026-10-04T13:07:17.7124321Z {"timestamp":"2026-10-04T13:07:17.712Z","level":"warn","event":"payment.verify.rejected","requestId":"req-97e106ff445207b2","service":"api","environment":"test","invoiceRef":"redacted","txRef":"redacted","errorCode":"AMOUNT_TOO_LOW","network":"TESTNET","durationMs":1}
+2026-10-04T13:07:17.7135538Z ✔ a failed rejection outbox returns 503 without caching; retry records the event before the verdict (157.22602ms)
+2026-10-04T13:07:18.1577317Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.1605079Z ⏰ Marked 1 invoices as expired
+2026-10-04T13:07:18.1605946Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.1624024Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.1684868Z ▶ PostgreSQL webhook outbox acceptance
+2026-10-04T13:07:18.1686955Z   ✔ enqueues each creation and paid/cancelled/expired transition exactly once (42.201741ms)
+2026-10-04T13:07:18.1928833Z {"timestamp":"2026-10-04T13:07:18.192Z","level":"error","event":"operation.failed","requestId":"req-90c20a10cb698d10","service":"api","environment":"test","operation":"invoice.create","errorCode":"INVOICE_CREATE_FAILED"}
+2026-10-04T13:07:18.2044366Z   ✔ rolls back invoice creation when its outbox insert fails (35.954191ms)
+2026-10-04T13:07:18.2300669Z {"timestamp":"2026-10-04T13:07:18.228Z","level":"error","event":"operation.failed","requestId":"req-cc9d626aee056c67","service":"api","environment":"test","operation":"invoice.markPaid","errorCode":"INVOICE_MARKPAID_FAILED"}
+2026-10-04T13:07:18.2415788Z   ✔ rolls back paid invoice and audit state when its outbox insert fails (37.057112ms)
+2026-10-04T13:07:18.2879111Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.2978892Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.3021298Z   ✔ rolls back cancelled invoice and audit state when its outbox insert fails (60.401882ms)
+2026-10-04T13:07:18.3395393Z ⏰ Marked 1 invoices as expired
+2026-10-04T13:07:18.3407777Z   ✔ rolls back expired invoice and audit state when its outbox insert fails (38.684979ms)
+2026-10-04T13:07:18.3762492Z ⏰ Marked 0 invoices as expired
+2026-10-04T13:07:18.3770169Z   ✔ commits a payment rejection audit and outbox together, with the same event id (36.049302ms)
+2026-10-04T13:07:18.8776610Z   ✔ lets only one of two separate worker processes own a due delivery (500.204878ms)
+2026-10-04T13:07:19.2958134Z   ✔ retains the pending event after a worker crash and delivers it on restart (414.951867ms)
+2026-10-04T13:07:19.3092234Z ✔ PostgreSQL webhook outbox acceptance (1293.156682ms)
+2026-10-04T13:07:19.3270052Z ℹ tests 16
+2026-10-04T13:07:19.3270609Z ℹ suites 1
+2026-10-04T13:07:19.3270890Z ℹ pass 16
+2026-10-04T13:07:19.3271229Z ℹ fail 0
+2026-10-04T13:07:19.3271546Z ℹ cancelled 0
+2026-10-04T13:07:19.3272062Z ℹ skipped 0
+2026-10-04T13:07:19.3272337Z ℹ todo 0
+2026-10-04T13:07:19.3323012Z ℹ duration_ms 2649.950601
+2026-10-04T13:07:19.3350575Z ##[group]Run set -o pipefail
+2026-10-04T13:07:19.3350832Z [36;1mset -o pipefail[0m
+
+Frontend/shared summaries from the same run:
+2026-10-04T13:08:05.2715865Z ℹ tests 760
+2026-10-04T13:08:05.2716040Z ℹ suites 0
+2026-10-04T13:08:05.2716217Z ℹ pass 760
+2026-10-04T13:08:05.2716382Z ℹ fail 0
+2026-10-04T13:08:05.2716552Z ℹ cancelled 0
+2026-10-04T13:08:05.2716727Z ℹ skipped 0
+2026-10-04T13:08:05.2716889Z ℹ todo 0
+2026-10-04T13:08:05.2717078Z ℹ duration_ms 7382.651399
+2026-10-04T13:08:05.6244751Z ℹ tests 41
+2026-10-04T13:08:05.6245140Z ℹ suites 3
+2026-10-04T13:08:05.6245475Z ℹ pass 41
+2026-10-04T13:08:05.6245797Z ℹ fail 0
+2026-10-04T13:08:05.6246140Z ℹ cancelled 0
+2026-10-04T13:08:05.6246490Z ℹ skipped 0
+2026-10-04T13:08:05.6246821Z ℹ todo 0
+2026-10-04T13:08:05.6247199Z ℹ duration_ms 299.779836
+
+Final backend: source77b18245e9d694a3b0a09900e36b2ecd3618b1c1
+https://github.com/woahwhattheheck/bounty-concierge/actions/runs/37204940133/job/111444066063
+2026-10-04T13:15:08.0773692Z node: v24.21.0
+2026-10-04T13:15:08.0774260Z npm: 11.19.0
+2026-10-04T13:15:08.1377085Z v24.21.0
+2026-10-04T13:15:08.2228212Z 11.19.0
+2026-10-04T13:15:11.3450510Z added 208 packages in 3s
+2026-10-04T13:15:38.0131821Z   ✔ verifies payment with a non-existent 64-character hash returns TRANSACTION_NOT_FOUND (65.253138ms)
+2026-10-04T13:15:41.4278716Z ℹ tests 904
+2026-10-04T13:15:41.4279392Z ℹ suites 169
+2026-10-04T13:15:41.4279794Z ℹ pass 904
+2026-10-04T13:15:41.4280176Z ℹ fail 0
+2026-10-04T13:15:41.4280573Z ℹ cancelled 0
+2026-10-04T13:15:41.4280974Z ℹ skipped 0
+2026-10-04T13:15:41.4281372Z ℹ todo 0
+2026-10-04T13:15:41.4281805Z ℹ duration_ms 27440.89223

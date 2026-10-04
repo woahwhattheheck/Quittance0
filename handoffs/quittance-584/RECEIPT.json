@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "issue": "https://github.com/Quittance-Labs/Quittance0/issues/584",
+  "target_repository": "Quittance-Labs/Quittance0",
+  "base": "main",
+  "base_sha": "282c75ad933651a93b89a8412ab649b48714c739",
+  "head": "woahwhattheheck:feat/q584-signed-webhooks-ledger0938",
+  "source_sha": "77b18245e9d694a3b0a09900e36b2ecd3618b1c1",
+  "source_tree": "a67dfc60acbbd431e1dcbd9f0aa24eebc31fe1e8",
+  "title": "Add signed seller webhooks with an atomic outbox and durable retries",
+  "pr_body_path": "handoffs/quittance-584/PR_BODY.md",
+  "publication": {
+    "state": "ready_pending_upstream_write",
+    "operation": "quittance584-create-20261004-ledger0938",
+    "existing_batch": "PUBLICATION-BATCH-797E",
+    "native_attempt_error": "403 Resource not accessible by integration",
+    "reward": "conditional; not awarded or paid"
+  },
+  "runs": [
+    {
+      "repository": "woahwhattheheck/bounty-concierge",
+      "run_id": 37204455112,
+      "job_id": 111442631510,
+      "controller_sha": "e3df57155eb9fe70fe212bca43c3f6fc7f9085d1",
+      "source_sha": "977da14c031f00f6ab7e3a7d5f9aef00104f9351",
+      "node": "24.21.0",
+      "npm": "11.19.0",
+      "postgresql": "16.15",
+      "acceptance": {
+        "pass": 16,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 2649.950601
+      },
+      "frontend": {
+        "pass": 760,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 7382.651399
+      },
+      "shared": {
+        "pass": 41,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 299.779836
+      },
+      "backend_typecheck": "pass",
+      "frontend_typecheck": "pass",
+      "frontend_lint": "pass",
+      "overall": "failure",
+      "failure": "One existing Horizon test expected HTTP404 from a connection-refused URL; fixed by local HTTP404 fixture in subsequent source commit.",
+      "artifact": {
+        "id": 11303927674,
+        "size": 67462,
+        "reported_digest": "sha256:2ff182c7a7cceb632fd8f10c63628261f458046249d2806cd07cbd20b9dd0a8e"
+      }
+    },
+    {
+      "repository": "woahwhattheheck/bounty-concierge",
+      "run_id": 37204940133,
+      "job_id": 111444066063,
+      "controller_sha": "fe96e4e27190d55c21df9b6f6ade2208d395b2bb",
+      "source_sha": "77b18245e9d694a3b0a09900e36b2ecd3618b1c1",
+      "node": "24.21.0",
+      "npm": "11.19.0",
+      "backend": {
+        "pass": 904,
+        "fail": 0,
+        "skipped": 0,
+        "duration_ms": 27440.89223
+      },
+      "typecheck": "pass",
+      "install": "normal npm ci --no-audit --no-fund,208 packages in3 seconds",
+      "overall": "success",
+      "artifact": {
+        "id": 11304546689,
+        "size": 42195,
+        "reported_digest": "sha256:ecec2c242ef3860e52e33c2909df8ab4c565550c14a852e0b2106b73d14c622e"
+      }
+    }
+  ],
+  "validation_note": "Production, schema, feature tests, and frontend blobs are identical between977da14c and77b18245; only backend/tests/stellar-service.test.ts changed. Validation excerpts preserve native job timestamps. Artifact digest values are reported by GitHub; archives were not downloaded in the offline executor.",
+  "delivery_guarantee": "at least once; receiver-side atomic event-ID deduplication required",
+  "runtime_limits": "PostgreSQL required for durable restart; memory MVP state is process-local",
+  "review_note": "35 changed paths: separate adapters, three existing server entrypoints, env examples, shared contract, dashboard, operational docs, focused tests and separate-process PostgreSQL fixture."
+}
