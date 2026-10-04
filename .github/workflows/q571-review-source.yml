@@ -1,0 +1,68 @@
+name: Invoice contract review source
+on:
+  push:
+    branches: [validation/q571-review-source-20261004]
+    paths: [.github/workflows/q571-review-source.yml]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=2048
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b223d5798fe68c150a429e652f10990d3f632a7d
+          fetch-depth: 0
+          path: subject
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: subject/frontend/package-lock.json
+      - name: Capture source identity and baseline review failures
+        working-directory: subject
+        shell: bash
+        run: |
+          mkdir -p ../evidence
+          test "$(git rev-parse HEAD)" = b223d5798fe68c150a429e652f10990d3f632a7d
+          git remote add upstream https://github.com/Quittance-Labs/Quittance0.git
+          git fetch --no-tags upstream c63e51942b727a9cb7082d89dab7d16f49c19372
+          { node --version; npm --version; git rev-parse HEAD HEAD^{tree} FETCH_HEAD FETCH_HEAD^{tree}; git merge-base HEAD FETCH_HEAD; } | tee ../evidence/source.txt
+          git archive HEAD | gzip > ../evidence/submitted-source.tar.gz
+          git archive c63e51942b727a9cb7082d89dab7d16f49c19372 | gzip > ../evidence/main-source.tar.gz
+          npm --prefix frontend ci --no-audit --no-fund
+          set +e
+          (cd frontend && node --test tests/pay-return.test.js tests/wallet-session-surfaces.test.js) > ../evidence/baseline.log 2>&1
+          status=$?
+          set -e
+          printf '%s\n' "$status" > ../evidence/baseline.exit
+          cat ../evidence/baseline.log
+      - name: Capture the current-main merge for explicit resolution
+        working-directory: subject
+        shell: bash
+        run: |
+          git config user.name woahwhattheheck
+          git config user.email 293286387+woahwhattheheck@users.noreply.github.com
+          set +e
+          git merge --no-commit --no-ff c63e51942b727a9cb7082d89dab7d16f49c19372 > ../evidence/merge.log 2>&1
+          status=$?
+          set -e
+          test "$status" -le 1
+          cat ../evidence/merge.log
+          git status --short > ../evidence/merge-status.txt
+          git diff --name-only --diff-filter=U > ../evidence/conflicts.txt
+          git diff --name-only c63e51942b727a9cb7082d89dab7d16f49c19372 > ../evidence/changed-vs-main.txt
+          tar --exclude=.git --exclude=node_modules --exclude=.next -czf ../evidence/merged-source.tar.gz .
+          sha256sum ../evidence/*.tar.gz > ../evidence/archive-sha256.txt
+      - name: Retain review evidence and source snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q571-review-source-b223d579-c63e5194
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
