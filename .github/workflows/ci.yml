@@ -1,134 +1,50 @@
-name: CI
+name: Quittance 566 late-settlement regression
 
 on:
-  pull_request:
   push:
     branches:
-      - main
-  # Lets a maintainer re-run the checks against a branch or a release commit
-  # without pushing an empty commit to trigger them.
-  workflow_dispatch:
+      - validation/q566-late-settlement-20261004-13a0
 
-# A newer push to the same branch supersedes an in-flight run.
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# These jobs only read the repository: the bump to `write` is a deliberate
-# change, not a default to inherit.
 permissions:
   contents: read
 
+concurrency:
+  group: q566-late-settlement-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  backend:
-    name: Backend — typecheck and tests
+  postgres-case:
+    name: Maintained late-settlement case on PostgreSQL
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     defaults:
       run:
         working-directory: backend
-
+        shell: bash
     env:
-      # The integration test starts its own Horizon stub on a loopback port and
-      # overrides this at runtime. It is set here so the suite never reaches the
-      # public testnet even if a test forgets to override it.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/quittance_test
       STELLAR_NETWORK: TESTNET
       STELLAR_HORIZON_URL: http://127.0.0.1:1
       NODE_ENV: test
-
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quittance_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quittance_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
         with:
-          # The backend suite drives Node own test runner (node --import tsx
-          # --test). On 20 that runner intermittently fails inside its own IPC
-          # layer with Unable to deserialize cloned data (raised in
-          # #processRawBuffer / FileTest.parseMessage) on the same test file that
-          # passes alone, while every assertion in the suite passes. Reproduced
-          # locally: 5/5 full-suite runs fail on 20, 4/4 pass on 22 and 24 with
-          # the suite unchanged. 24 is the runtime the other two jobs already use,
-          # and no test, script or assertion is changed by this.
-          node-version: 24
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-  frontend:
-    name: Frontend — lint, typecheck and tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-
-    env:
-      NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api
-      NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          # The frontend suite loads the shipped .ts modules directly, which
-          # needs Node's default type stripping (22.18+). On 20 every test
-          # file failed to parse before a single assertion ran. 24 also
-          # matches the job the shared-contract tests already run on.
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-  root-tests:
-    name: Shared export tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # The same glob the README documents for a local run, so a new shared
-      # suite is picked up here by existing rather than by editing this file.
-      - name: Test
-        run: node --test "tests/**/*.test.mjs"
-
-  evidence-smoke:
-    name: Evidence smoke (optional, secrets-gated)
-    runs-on: ubuntu-latest
-    needs: backend
-    defaults:
-      run:
-        working-directory: backend
-
-    env:
-      EVIDENCE_API_URL: ${{ vars.EVIDENCE_API_URL }}
-      EVIDENCE_SELLER_PUBLIC_KEY: ${{ secrets.EVIDENCE_SELLER_PUBLIC_KEY }}
-      EVIDENCE_PAYER_SECRET: ${{ secrets.EVIDENCE_PAYER_SECRET }}
-      EVIDENCE_NETWORK: TESTNET
-
-    steps:
-      - uses: actions/checkout@v4
+          ref: f96fffe1ffd26cdf04bd4dfe9faf239cb7bac7fe
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -136,19 +52,26 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install locked backend dependencies
         run: npm ci
 
-      # `secrets` is only readable in a *step*'s `if:`, not the job's own --
-      # a job-level `if: secrets.X != ''` is rejected by the Actions runner
-      # itself (actionlint: "context secrets is not allowed here"). GitHub
-      # also never exposes secrets to a fork's pull_request context at all,
-      # so `secrets.EVIDENCE_PAYER_SECRET` is the empty string there
-      # regardless -- this step correctly no-ops on an external
-      # contributor's PR rather than failing on credentials it was never
-      # meant to have, and runs for real only where the repository's own
-      # secrets are configured (this repo's main-branch pushes, or a PR
-      # from a branch within it).
-      - name: Run Testnet evidence smoke (create -> pay -> verify)
-        if: ${{ env.EVIDENCE_PAYER_SECRET != '' && env.EVIDENCE_SELLER_PUBLIC_KEY != '' }}
-        run: npm run evidence:smoke
+      - name: Verify pinned source and native PostgreSQL
+        run: |
+          test "$(git rev-parse HEAD)" = "f96fffe1ffd26cdf04bd4dfe9faf239cb7bac7fe"
+          test "$(git hash-object tests/invoice-postgres.integration.test.ts)" = "d88dca567e8d458bb8930ca92430b641cfb21456"
+          node --version
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          try {
+            console.log((await pool.query('SELECT version()')).rows[0].version);
+          } finally {
+            await pool.end();
+          }
+          NODE
+
+      - name: Run the one affected maintained integration case
+        run: |
+          node --import tsx --test --test-isolation=none --test-reporter=tap --test-name-pattern='records a matched late payment after expiry as PAID' tests/invoice-postgres.integration.test.ts | tee "$RUNNER_TEMP/q566-case.tap"
+          grep -Eq '^# pass 1$' "$RUNNER_TEMP/q566-case.tap"
+          grep -Eq '^# fail 0$' "$RUNNER_TEMP/q566-case.tap"
