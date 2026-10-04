@@ -1,0 +1,44 @@
+name: Pinned settlement integration source
+on:
+  push:
+    branches: [validation/quittance-source-delta-20261004]
+    paths: [.github/workflows/source-delta-20261004.yml]
+permissions:
+  contents: read
+concurrency:
+  group: quittance-source-delta-20261004
+  cancel-in-progress: false
+jobs:
+  export:
+    if: github.repository == 'woahwhattheheck/Quittance0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 04726ebd2ddb99a8cc9bb40c39e3dae1c5dd0cbe
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export Git objects only
+        env:
+          SOURCE: 04726ebd2ddb99a8cc9bb40c39e3dae1c5dd0cbe
+          UPSTREAM: 282c75ad933651a93b89a8412ab649b48714c739
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          git fetch --no-tags https://github.com/Quittance-Labs/Quittance0.git "$UPSTREAM"
+          test "$(git rev-parse FETCH_HEAD)" = "$UPSTREAM"
+          git update-ref refs/export/settlement "$SOURCE"
+          git update-ref refs/export/upstream "$UPSTREAM"
+          mkdir -p export
+          git bundle create export/quittance-source.bundle --all
+          git bundle verify export/quittance-source.bundle
+          printf 'source=%s\nupstream=%s\n' "$SOURCE" "$UPSTREAM" > export/identity.txt
+          git for-each-ref --format='%(objectname) %(refname)' >> export/identity.txt
+          sha256sum export/quittance-source.bundle > export/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quittance-source-delta-04726ebd-282c75ad
+          path: export/
+          retention-days: 7
+          if-no-files-found: error
