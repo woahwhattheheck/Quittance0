@@ -1,90 +1,70 @@
 name: Q571 Review Validation
-
 on:
   push:
     branches: [cashforge/q571-review-validation-20261004]
-
 permissions:
-  contents: write
-
+  contents: read
 concurrency:
   group: q571-review-validation
   cancel-in-progress: false
-
 jobs:
-  candidate:
+  generated-file-diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     env:
       NODE_ENV: test
       NEXT_TELEMETRY_DISABLED: 1
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api
       NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
-      STELLAR_NETWORK: TESTNET
-      STELLAR_HORIZON_URL: http://127.0.0.1:1
     steps:
       - uses: actions/checkout@v4
         with:
-          path: controller
+          ref: f634e4f37945d40b0ed4024a88b380f5847fe87a
           persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: ca6a2a0ed044131d390246f26c0c86135d29012a
-          path: candidate-input
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: b223d5798fe68c150a429e652f10990d3f632a7d
-          fetch-depth: 0
-          path: subject
-          persist-credentials: false
-      - name: Assemble and verify the exact reviewed candidate
-        shell: bash
-        run: |
-          bash candidate-input/assemble-q571.sh "$GITHUB_WORKSPACE/subject"
-          cd subject
-          test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
-          test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
-          git merge-base --is-ancestor b223d5798fe68c150a429e652f10990d3f632a7d HEAD
-          git merge-base --is-ancestor 282c75ad933651a93b89a8412ab649b48714c739 HEAD
-          git diff --check 282c75ad933651a93b89a8412ab649b48714c739 HEAD
-          git show --no-patch --format=fuller HEAD
-          git diff --stat 282c75ad933651a93b89a8412ab649b48714c739 HEAD
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            subject/frontend/package-lock.json
-            subject/backend/package-lock.json
-      - name: Install locked dependencies
-        working-directory: subject
-        run: |
-          npm ci --prefix frontend --no-audit --no-fund
-          npm ci --prefix backend --no-audit --no-fund
-      - name: Execute frontend and existing backend/shared contract checks
-        working-directory: subject
-        run: python ../controller/work/q571-review/validate_candidate.py
-      - name: Retain the validated source on a new candidate ref only
-        working-directory: subject
+          cache-dependency-path: frontend/package-lock.json
+      - name: Capture changes from install, lint and typecheck only
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p "$RUNNER_TEMP/q571-drift"
           test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
           test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
           git diff --exit-code HEAD
-          git bundle create "$RUNNER_TEMP/q571-validation/source.bundle" HEAD
-          sha256sum "$RUNNER_TEMP/q571-validation/source.bundle"
-          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          echo "::add-mask::$auth"
-          git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push https://github.com/woahwhattheheck/Quittance0.git f634e4f37945d40b0ed4024a88b380f5847fe87a:refs/heads/validation/q571-candidate-f634e4f
-          printf 'VALIDATED_CANDIDATE_REF=validation/q571-candidate-f634e4f\n'
-      - name: Retain exact logs and exit-code receipt
+          python - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          out = Path(os.environ['RUNNER_TEMP']) / 'q571-drift'
+          rows = []
+          for name,args in [('install',['npm','ci','--prefix','frontend','--no-audit','--no-fund']),('lint',['npm','--prefix','frontend','run','lint']),('typecheck',['npm','--prefix','frontend','run','typecheck'])]:
+              result = subprocess.run(args, capture_output=True, text=True, timeout=240)
+              (out / f'{name}.log').write_text(result.stdout + result.stderr)
+              diff = subprocess.check_output(['git','diff','--binary','HEAD'], text=True)
+              (out / f'{name}.diff').write_text(diff)
+              changed = subprocess.check_output(['git','diff','--name-only','HEAD'],text=True).splitlines()
+              rows.append({'step':name,'command':args,'exit_code':result.returncode,'changed_files':changed})
+              print(f'Q571_DRIFT_STEP={json.dumps(rows[-1])}',flush=True)
+              print(diff,flush=True)
+              if result.returncode:
+                  print(result.stdout + result.stderr,flush=True)
+          changed = subprocess.check_output(['git','diff','--name-only','HEAD'],text=True).splitlines()
+          generated='frontend/next-env.d.ts'
+          before=subprocess.check_output(['git','show',f'HEAD:{generated}'],text=True)
+          after=Path(generated).read_text()
+          # Preserve triple-slash declarations; only plain comment text may vary.
+          substantive=lambda s:[line for line in s.splitlines() if line.strip() and not line.lstrip().startswith('// ')]
+          comment_only=changed == [generated] and substantive(before) == substantive(after)
+          receipt={'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'tree_sha':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),'node':subprocess.check_output(['node','--version'],text=True).strip(),'steps':rows,'generated_next_env_comment_only':comment_only,'before_sha256':hashlib.sha256(before.encode()).hexdigest(),'after_sha256':hashlib.sha256(after.encode()).hexdigest(),'passing_test_run_reused':37189795925,'tests_rerun':False}
+          (out/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          print('Q571_DRIFT_RECEIPT='+json.dumps(receipt,sort_keys=True),flush=True)
+          raise SystemExit(0 if comment_only and all(r['exit_code']==0 for r in rows) else 1)
+          PY
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: q571-validation-f634e4f
-          path: ${{ runner.temp }}/q571-validation/
-          if-no-files-found: warn
+          name: q571-generated-file-diagnostic-f634e4f
+          path: ${{ runner.temp }}/q571-drift/
           retention-days: 14
+          if-no-files-found: error
