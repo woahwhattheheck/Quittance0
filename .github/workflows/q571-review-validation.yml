@@ -5,18 +5,19 @@ on:
     branches: [cashforge/q571-review-validation-20261004]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: q571-review-validation
   cancel-in-progress: false
 
 jobs:
-  baseline:
+  candidate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: 1
       NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api
       NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
       STELLAR_NETWORK: TESTNET
@@ -24,42 +25,66 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ca6a2a0ed044131d390246f26c0c86135d29012a
+          path: candidate-input
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
           ref: b223d5798fe68c150a429e652f10990d3f632a7d
           fetch-depth: 0
+          path: subject
           persist-credentials: false
+      - name: Assemble and verify the exact reviewed candidate
+        shell: bash
+        run: |
+          bash candidate-input/assemble-q571.sh "$GITHUB_WORKSPACE/subject"
+          cd subject
+          test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
+          test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
+          git merge-base --is-ancestor b223d5798fe68c150a429e652f10990d3f632a7d HEAD
+          git merge-base --is-ancestor 282c75ad933651a93b89a8412ab649b48714c739 HEAD
+          git diff --check 282c75ad933651a93b89a8412ab649b48714c739 HEAD
+          git show --no-patch --format=fuller HEAD
+          git diff --stat 282c75ad933651a93b89a8412ab649b48714c739 HEAD
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install locked frontend dependencies
-        run: npm ci --prefix frontend
-      - name: Reproduce existing frontend suite
-        shell: bash
+          cache-dependency-path: |
+            subject/frontend/package-lock.json
+            subject/backend/package-lock.json
+      - name: Install locked dependencies
+        working-directory: subject
         run: |
-          set +e
-          (cd frontend && npm test) > "$RUNNER_TEMP/q571-baseline.log" 2>&1
-          result=$?
-          cat "$RUNNER_TEMP/q571-baseline.log"
-          printf '\nQ571_BASELINE_EXIT=%s\n' "$result"
-          test "$result" -ne 0
-      - name: Inspect current-main composition
+          npm ci --prefix frontend --no-audit --no-fund
+          npm ci --prefix backend --no-audit --no-fund
+      - name: Execute frontend and existing backend/shared contract checks
+        working-directory: subject
+        run: python ../controller/work/q571-review/validate_candidate.py
+      - name: Retain the validated source on a new candidate ref only
+        working-directory: subject
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name woahwhattheheck
-          git config user.email 293286387+woahwhattheheck@users.noreply.github.com
-          git fetch --no-tags https://github.com/Quittance-Labs/Quittance0.git c63e51942b727a9cb7082d89dab7d16f49c19372
-          set +e
-          git merge --no-commit --no-ff c63e51942b727a9cb7082d89dab7d16f49c19372
-          result=$?
-          set -e
-          printf '\nQ571_MERGE_EXIT=%s\n' "$result"
-          git status --short
-          python - <<'PY'
-          import pathlib, subprocess
-          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=U'], text=True).splitlines()
-          for path in paths:
-              lines = pathlib.Path(path).read_text().splitlines()
-              print('\nQ571_CONFLICT_FILE=' + path)
-              print('\n'.join(f'{i+1}: {line}' for i,line in enumerate(lines)))
-          PY
+          test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
+          test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
+          git diff --exit-code HEAD
+          git bundle create "$RUNNER_TEMP/q571-validation/source.bundle" HEAD
+          sha256sum "$RUNNER_TEMP/q571-validation/source.bundle"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push https://github.com/woahwhattheheck/Quittance0.git f634e4f37945d40b0ed4024a88b380f5847fe87a:refs/heads/validation/q571-candidate-f634e4f
+          printf 'VALIDATED_CANDIDATE_REF=validation/q571-candidate-f634e4f\n'
+      - name: Retain exact logs and exit-code receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q571-validation-f634e4f
+          path: ${{ runner.temp }}/q571-validation/
+          if-no-files-found: warn
+          retention-days: 14
