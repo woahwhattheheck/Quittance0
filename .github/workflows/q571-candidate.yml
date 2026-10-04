@@ -1,0 +1,43 @@
+name: Materialize invoice contract candidate
+on:
+  push:
+    branches: [validation/q571-review-source-20261004]
+    paths: [.github/workflows/q571-candidate.yml]
+permissions:
+  contents: read
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ca6a2a0ed044131d390246f26c0c86135d29012a
+          path: carrier
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: b223d5798fe68c150a429e652f10990d3f632a7d
+          fetch-depth: 0
+          path: subject
+          persist-credentials: true
+      - name: Assemble the exact reviewed merge without running application code
+        shell: bash
+        run: |
+          test "$(git -C carrier rev-parse HEAD)" = ca6a2a0ed044131d390246f26c0c86135d29012a
+          test "$(git -C carrier hash-object assemble-q571.sh)" = 3e872ff5f5735f99517e99c1496606692bbdba78
+          bash "$GITHUB_WORKSPACE/carrier/assemble-q571.sh" "$GITHUB_WORKSPACE/subject"
+      - name: Retain only the candidate branch for the existing read-only validator
+        shell: bash
+        working-directory: subject
+        run: |
+          test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
+          test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
+          ref=refs/heads/validation/q571-candidate-f634e4f
+          existing=$(git ls-remote --heads origin "$ref" | cut -f1)
+          test -z "$existing" || test "$existing" = f634e4f37945d40b0ed4024a88b380f5847fe87a
+          git push origin "HEAD:$ref"
+          test "$(git ls-remote --heads origin "$ref" | cut -f1)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
+          printf 'CANDIDATE=f634e4f37945d40b0ed4024a88b380f5847fe87a\nTREE=cc5b8f56e908f6e60e8bb683211a3d950fd959be\n'
