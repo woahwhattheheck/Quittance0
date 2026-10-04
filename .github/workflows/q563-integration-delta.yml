@@ -1,0 +1,76 @@
+name: Settlement current-main integration
+on:
+  push:
+    branches: [validation/quittance-source-delta-20261004]
+    paths: [.github/workflows/q563-integration-delta.yml]
+permissions:
+  contents: write
+concurrency:
+  group: q563-integration-delta-20261004
+  cancel-in-progress: false
+jobs:
+  settlement:
+    if: github.repository == 'woahwhattheheck/Quittance0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE: 04726ebd2ddb99a8cc9bb40c39e3dae1c5dd0cbe
+      UPSTREAM: 282c75ad933651a93b89a8412ab649b48714c739
+      EXPECTED_TREE: 4edbd31b3357dda6ebd7a1d901f51f19b5ff252d
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a26167ae5553eb3ca5a6e57a60108416d77be01b
+          path: carrier
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 04726ebd2ddb99a8cc9bb40c39e3dae1c5dd0cbe
+          path: subject
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Assemble the reviewed merge
+        working-directory: subject
+        run: |
+          set -eu
+          mkdir -p ../evidence
+          git config user.name woahwhattheheck
+          git config user.email brycembusiness2@gmail.com
+          git fetch --no-tags https://github.com/Quittance-Labs/Quittance0.git "$UPSTREAM"
+          test "$(git rev-parse HEAD)" = "$SOURCE"
+          test "$(git rev-parse FETCH_HEAD)" = "$UPSTREAM"
+          git merge --no-commit --no-ff "$UPSTREAM" > ../evidence/merge.txt 2>&1 || test $? = 1
+          python ../carrier/work/q563-integration/assemble.py
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+          git diff --cached --stat "$UPSTREAM" > ../evidence/upstream-diff-stat.txt
+          git diff --cached "$UPSTREAM" > ../evidence/upstream-diff.patch
+          git commit -m "Merge current upstream lifecycle and artifacts into terminal settlement [skip ci]"
+          git rev-parse HEAD HEAD^{tree} HEAD^1 HEAD^2 > ../evidence/identity.txt
+          node --version > ../evidence/node-version.txt
+      - name: Run only backend types and the affected settlement contracts
+        working-directory: subject
+        run: |
+          set -euo pipefail
+          npm --prefix backend ci --no-audit --no-fund > ../evidence/install.log 2>&1
+          npm --prefix backend run typecheck 2>&1 | tee ../evidence/typecheck.log
+          (cd backend && node --import tsx --test tests/invoice-terminal-settlement.test.ts tests/invoice-state-machine.test.ts tests/invoice-cancel-payment-race.test.ts) 2>&1 | tee ../evidence/settlement.tap
+          git diff --exit-code > ../evidence/source-diff.txt
+      - name: Retain tested source on a new result ref only
+        working-directory: subject
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse HEAD^1)" = "$SOURCE"
+          test "$(git rev-parse HEAD^2)" = "$UPSTREAM"
+          git push origin HEAD:refs/heads/validation/q563-integrated-delta-result
+      - name: Retain exact execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: q563-integration-delta-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
