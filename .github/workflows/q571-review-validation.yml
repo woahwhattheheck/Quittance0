@@ -1,0 +1,65 @@
+name: Q571 Review Validation
+
+on:
+  push:
+    branches: [cashforge/q571-review-validation-20261004]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: q571-review-validation
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3001/api
+      NEXT_PUBLIC_STELLAR_NETWORK: TESTNET
+      STELLAR_NETWORK: TESTNET
+      STELLAR_HORIZON_URL: http://127.0.0.1:1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b223d5798fe68c150a429e652f10990d3f632a7d
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Reproduce existing frontend suite
+        shell: bash
+        run: |
+          set +e
+          (cd frontend && npm test) > "$RUNNER_TEMP/q571-baseline.log" 2>&1
+          result=$?
+          cat "$RUNNER_TEMP/q571-baseline.log"
+          printf '\nQ571_BASELINE_EXIT=%s\n' "$result"
+          test "$result" -ne 0
+      - name: Inspect current-main composition
+        shell: bash
+        run: |
+          git config user.name woahwhattheheck
+          git config user.email 293286387+woahwhattheheck@users.noreply.github.com
+          git fetch --no-tags https://github.com/Quittance-Labs/Quittance0.git c63e51942b727a9cb7082d89dab7d16f49c19372
+          set +e
+          git merge --no-commit --no-ff c63e51942b727a9cb7082d89dab7d16f49c19372
+          result=$?
+          set -e
+          printf '\nQ571_MERGE_EXIT=%s\n' "$result"
+          git status --short
+          python - <<'PY'
+          import pathlib, subprocess
+          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=U'], text=True).splitlines()
+          for path in paths:
+              lines = pathlib.Path(path).read_text().splitlines()
+              print('\nQ571_CONFLICT_FILE=' + path)
+              print('\n'.join(f'{i+1}: {line}' for i,line in enumerate(lines)))
+          PY
