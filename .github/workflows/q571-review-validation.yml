@@ -8,7 +8,7 @@ concurrency:
   group: q571-review-validation
   cancel-in-progress: false
 jobs:
-  generated-file-diagnostic:
+  source-integrity-closure:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
@@ -26,45 +26,67 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Capture changes from install, lint and typecheck only
+      - name: Check source declarations and record exact generated-file normalization
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/q571-drift"
-          test "$(git rev-parse HEAD)" = f634e4f37945d40b0ed4024a88b380f5847fe87a
-          test "$(git rev-parse HEAD^{tree})" = cc5b8f56e908f6e60e8bb683211a3d950fd959be
-          git diff --exit-code HEAD
+          mkdir -p "$RUNNER_TEMP/q571-source-integrity"
           python - <<'PY'
           import hashlib, json, os, subprocess
           from pathlib import Path
-          out = Path(os.environ['RUNNER_TEMP']) / 'q571-drift'
-          rows = []
-          for name,args in [('install',['npm','ci','--prefix','frontend','--no-audit','--no-fund']),('lint',['npm','--prefix','frontend','run','lint']),('typecheck',['npm','--prefix','frontend','run','typecheck'])]:
-              result = subprocess.run(args, capture_output=True, text=True, timeout=240)
-              (out / f'{name}.log').write_text(result.stdout + result.stderr)
-              diff = subprocess.check_output(['git','diff','--binary','HEAD'], text=True)
-              (out / f'{name}.diff').write_text(diff)
-              changed = subprocess.check_output(['git','diff','--name-only','HEAD'],text=True).splitlines()
-              rows.append({'step':name,'command':args,'exit_code':result.returncode,'changed_files':changed})
-              print(f'Q571_DRIFT_STEP={json.dumps(rows[-1])}',flush=True)
-              print(diff,flush=True)
-              if result.returncode:
-                  print(result.stdout + result.stderr,flush=True)
-          changed = subprocess.check_output(['git','diff','--name-only','HEAD'],text=True).splitlines()
+          out=Path(os.environ['RUNNER_TEMP'])/'q571-source-integrity'
           generated='frontend/next-env.d.ts'
-          before=subprocess.check_output(['git','show',f'HEAD:{generated}'],text=True)
-          after=Path(generated).read_text()
-          # Preserve triple-slash declarations; only plain comment text may vary.
-          substantive=lambda s:[line for line in s.splitlines() if line.strip() and not line.lstrip().startswith('// ')]
-          comment_only=changed == [generated] and substantive(before) == substantive(after)
-          receipt={'source_sha':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'tree_sha':subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip(),'node':subprocess.check_output(['node','--version'],text=True).strip(),'steps':rows,'generated_next_env_comment_only':comment_only,'before_sha256':hashlib.sha256(before.encode()).hexdigest(),'after_sha256':hashlib.sha256(after.encode()).hexdigest(),'passing_test_run_reused':37189795925,'tests_rerun':False}
-          (out/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
-          print('Q571_DRIFT_RECEIPT='+json.dumps(receipt,sort_keys=True),flush=True)
-          raise SystemExit(0 if comment_only and all(r['exit_code']==0 for r in rows) else 1)
+          read=lambda args:subprocess.check_output(args,text=True).strip()
+          digest=lambda data:hashlib.sha256(data).hexdigest()
+          receipt={'source_sha':read(['git','rev-parse','HEAD']),'tree_sha':read(['git','rev-parse','HEAD^{tree}']),'node':read(['node','--version']),'steps':[],'tests_rerun':False,'passing_test_run_reused':37189795925}
+          def check(condition,message):
+              if not condition:
+                  raise RuntimeError(message)
+          def run(name,args):
+              result=subprocess.run(args,capture_output=True,text=True,timeout=240)
+              (out/f'{name}.log').write_text(result.stdout+result.stderr)
+              changed=read(['git','diff','--name-only','HEAD']).splitlines()
+              receipt['steps'].append({'name':name,'command':args,'exit_code':result.returncode,'changed_files':changed})
+              print('Q571_SOURCE_STEP='+json.dumps(receipt['steps'][-1]),flush=True)
+              check(result.returncode==0,f'{name} failed')
+              return changed
+          try:
+              check(receipt['source_sha']=='f634e4f37945d40b0ed4024a88b380f5847fe87a','Unexpected source')
+              check(receipt['tree_sha']=='cc5b8f56e908f6e60e8bb683211a3d950fd959be','Unexpected tree')
+              check(not read(['git','diff','--name-only','HEAD']),'Checkout not clean')
+              before=Path(generated).read_bytes()
+              receipt['before_sha256']=digest(before)
+              check(receipt['before_sha256']=='c719792fe4532371b862171d754a573cd62f2f0ff6d23191a62cae02199a1c800b','Unexpected source declaration')
+              check(not run('install',['npm','ci','--prefix','frontend','--no-audit','--no-fund']),'Install changed tracked source')
+              check(not run('original-source-typecheck',['npm','--prefix','frontend','run','typecheck']),'Original source typecheck changed tracked source')
+              changed=run('lint',['npm','--prefix','frontend','run','lint'])
+              diff=subprocess.check_output(['git','diff','--binary','HEAD'],text=True)
+              (out/'generated-declaration.diff').write_text(diff)
+              print(diff,flush=True)
+              receipt['after_sha256']=digest(Path(generated).read_bytes())
+              check(changed==[generated],'Unexpected changed file set')
+              check(receipt['after_sha256']=='a2c5d2f3ea096f37a8fe3e5d0a4d0531c26af87ab1ab931b3e694ae697cdabb33','Unexpected generated declaration')
+              # Restore only this fully hash-checked generated file after retaining
+              # its exact diff; never silently whitelist other files or changes.
+              subprocess.run(['git','restore','--source=HEAD','--worktree','--',generated],check=True)
+              check(Path(generated).read_bytes()==before,'Source declaration restore mismatch')
+              check(not read(['git','diff','--name-only','HEAD']),'Other tracked changes remain')
+              receipt['source_declaration_typechecked_without_regeneration']=True
+              receipt['exact_generated_declaration_change_recorded']=True
+              receipt['tracked_worktree_clean_after_explicit_restore']=True
+              receipt['passed']=True
+          except Exception as exc:
+              receipt['passed']=False
+              receipt['error']=str(exc)
+          finally:
+              receipt['final_changed_files']=read(['git','diff','--name-only','HEAD']).splitlines()
+              (out/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+              print('Q571_SOURCE_INTEGRITY_RECEIPT='+json.dumps(receipt,sort_keys=True),flush=True)
+          raise SystemExit(0 if receipt['passed'] else 1)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: q571-generated-file-diagnostic-f634e4f
-          path: ${{ runner.temp }}/q571-drift/
+          name: q571-source-integrity-f634e4f
+          path: ${{ runner.temp }}/q571-source-integrity/
           retention-days: 14
           if-no-files-found: error
